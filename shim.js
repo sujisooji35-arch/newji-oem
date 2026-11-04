@@ -13,10 +13,11 @@ var SB=window.supabase.createClient(config.url,config.anonKey,{auth:{persistSess
 window.__NEWJI_SB=SB;
 
 /* ── 표 이름·열 이름 대응 ── */
-var TBL={batches:'newji_batches',events:'newji_events',materials:'newji_materials',orders:'newji_orders',receipts:'newji_receipts',beans:'newji_beans',products:'newji_products',settings:'newji_settings'};
+var TBL={batches:'newji_batches',events:'newji_events',materials:'newji_materials',orders:'newji_orders',receipts:'newji_receipts',beans:'newji_beans',products:'newji_products',settings:'newji_settings',logs:'newji_logs'};
 var MAP={batches:{order:'order_id',lastGrind:'last_grind',start:'start_date',end:'end_date'},events:{endDate:'end_date'},
-  materials:{group:'grp',order:'ord',perBean:'per_bean',sheetTab:'sheet_tab',lossNotes:'loss_notes'},orders:{},receipts:{order:'order_id'},beans:{order:'ord'},products:{order:'ord'}};
-var COLS={batches:['order_id','item','bean','batches','kg','qty','roast','recv','grind','last_grind','start_date','end_date','status','memo','daily'],
+  materials:{group:'grp',order:'ord',perBean:'per_bean',sheetTab:'sheet_tab',lossNotes:'loss_notes'},orders:{},receipts:{order:'order_id'},beans:{order:'ord'},products:{order:'ord'},logs:{user:'usr',docId:'doc_id'}};
+var COLS={batches:['order_id','item','bean','batches','kg','qty','roast','recv','grind','last_grind','start_date','end_date','status','memo','daily','actual'],
+  logs:['at','usr','uid','action','coll','doc_id','title','fields','ctx'],
   events:['type','title','date','end_date','time','contact','memo','done'],
   materials:['name','code','grp','unit','basis','scope','loss','ord','memo','link','sheet_tab','per','per_bean','log','loss_notes'],
   orders:['title','no','date','due','status','memo','lines'],receipts:['date','order_id','memo','rows'],
@@ -52,7 +53,7 @@ function collection(c){
       var busy=false,again=false;
       function load(){
         if(busy){again=true;return}busy=true;
-        SB.from(T).select('*').then(function(res){
+        (c==='logs'?SB.from(T).select('*').order('at',{ascending:false}).limit(500):SB.from(T).select('*')).then(function(res){
           busy=false;
           if(res.error){if(error)error(errCode(res.error));}
           else next({docs:(res.data||[]).map(function(r){var d=fromRow(c,r);return {id:r.id,exists:true,data:function(){return d}}})});
