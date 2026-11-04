@@ -14,16 +14,16 @@ window.__NEWJI_SB=SB;
 
 /* ── 표 이름·열 이름 대응 ── */
 var TBL={batches:'newji_batches',events:'newji_events',materials:'newji_materials',orders:'newji_orders',receipts:'newji_receipts',beans:'newji_beans',products:'newji_products',settings:'newji_settings',logs:'newji_logs'};
-var MAP={batches:{order:'order_id',lastGrind:'last_grind',start:'start_date',end:'end_date'},events:{endDate:'end_date'},
+var MAP={batches:{shipKg:'ship_kg',order:'order_id',lastGrind:'last_grind',start:'start_date',end:'end_date'},events:{endDate:'end_date'},
   materials:{group:'grp',order:'ord',perBean:'per_bean',sheetTab:'sheet_tab',lossNotes:'loss_notes'},orders:{},receipts:{order:'order_id'},beans:{order:'ord'},products:{order:'ord'},logs:{user:'usr',docId:'doc_id'}};
-var COLS={batches:['order_id','item','bean','batches','kg','qty','roast','recv','grind','last_grind','start_date','end_date','status','memo','daily','actual'],
+var COLS={batches:['order_id','item','bean','batches','kg','qty','roast','recv','grind','last_grind','start_date','end_date','status','memo','daily','actual','ship_kg'],
   logs:['at','usr','uid','action','coll','doc_id','title','fields','ctx'],
   events:['type','title','date','end_date','time','contact','memo','done'],
   materials:['name','code','grp','unit','basis','scope','loss','ord','memo','link','sheet_tab','per','per_bean','log','loss_notes'],
   orders:['title','no','date','due','status','memo','lines'],receipts:['date','order_id','memo','rows'],
   beans:['name','code','decaf','active','ord','memo'],products:['name','pack','comp','active','ord','memo']};
 var DATES={roast:1,recv:1,grind:1,last_grind:1,start_date:1,end_date:1,date:1,due:1};
-var NUMS={batches:1,kg:1,qty:1,loss:1,ord:1,pack:1};
+var NUMS={batches:1,kg:1,ship_kg:1,qty:1,loss:1,ord:1,pack:1};
 var INTS={qty:1,ord:1,pack:1};
 function inv(c){var m=MAP[c]||{},r={};Object.keys(m).forEach(function(k){r[m[k]]=k});return r}
 function toRow(c,doc){
@@ -153,13 +153,15 @@ function showLogin(first){
   });
 }
 function logout(){try{localStorage.removeItem('newji-session')}catch(e){}location.reload()}
-function userChip(){
-  var c=document.getElementById('uchip');if(c)c.remove();
+function chipHTML(){
+  if(!SESSION)return '';
   var roleTxt={admin:'관리자',editor:'편집',viewer:'보기 전용'}[SESSION.role]||SESSION.role;
-  c=el('<div class="uchip" id="uchip"><span><b>'+esc(SESSION.name)+'</b> · '+roleTxt+'</span><button type="button" data-u="pw">비밀번호 변경</button>'+(SESSION.role==='admin'?'<button type="button" data-u="users">사용자 관리</button>':'')+'<button type="button" data-u="out">로그아웃</button></div>');
-  document.body.appendChild(c);
-  c.addEventListener('click',function(e){var b=e.target.closest('[data-u]');if(!b)return;var u=b.dataset.u;if(u==='out')logout();else if(u==='pw')pwModal();else if(u==='users')usersModal()});
+  return '<div class="uchip" id="uchip"><span><b>'+esc(SESSION.name)+'</b> · '+roleTxt+'</span><button type="button" data-u="pw">비밀번호 변경</button>'+(SESSION.role==='admin'?'<button type="button" data-u="users">사용자 관리</button>':'')+'<button type="button" data-u="out">로그아웃</button></div>';
 }
+window.__NEWJI_UCHIP=chipHTML;
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-u]');if(!b)return;var u=b.dataset.u;if(u==='out')logout();else if(u==='pw')pwModal();else if(u==='users')usersModal()});
+// 화면 위쪽(제목 오른쪽)에 표시 — 프로그램 화면이 다시 그려질 때 함께 그려짐
+function userChip(){var a=document.querySelector('.top .actions');if(a&&!document.getElementById('uchip'))a.insertAdjacentHTML('afterbegin',chipHTML())}
 function modal(title,body){
   var m=el('<div class="umodal"><div class="uscrim"></div><div class="ubox" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="uhd"><h2>'+esc(title)+'</h2><button type="button" class="xbtn" data-x="1" aria-label="닫기">×</button></div><div class="ubd">'+body+'</div></div></div>');
   document.body.appendChild(m);m.addEventListener('click',function(e){if(e.target.dataset.x||e.target.classList.contains('uscrim'))m.remove()});return m;
