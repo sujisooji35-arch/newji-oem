@@ -572,9 +572,16 @@ table.wk tr.off td{color:var(--ink3)}
 .spt th small,.spt td small{display:block;font-size:11px;color:var(--ink3);font-weight:400}
 .spt tr.sph td{background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
 .spt tr.spg td{font-size:12px;font-weight:700;color:var(--ink2);background:color-mix(in srgb,var(--ink3) 8%,var(--surface))}
+.spblock{border:1px solid var(--line);border-left:4px solid var(--id,var(--line));border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.sphead{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:8px}
+.pdoc h3.psub{font-size:12.5px;margin:10px 0 4px}
 .splitctl{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
 .sprow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .spn{display:inline-flex;align-items:center;gap:4px;font-weight:600;min-width:150px}
+.kgin{width:86px;text-align:right;border:1px dashed var(--line);background:transparent;border-radius:7px;padding:3px 6px;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}
+.kgin:focus,.kgin:hover{border-style:solid;background:var(--surface)}
+.kgin.set{border-style:solid;border-color:var(--accent);font-weight:700;background:var(--surface)}
+.spt td small{display:block}
 .unitin{width:84px;text-align:right;border:1px dashed var(--line);background:transparent;border-radius:7px;padding:3px 6px;font-size:12.5px;color:var(--ink)}
 .unitin:focus{border-style:solid;background:var(--surface)}
 .ocx{opacity:.6}
@@ -750,7 +757,7 @@ function num(v){var n=parseFloat(String(v).replace(/,/g,''));return isFinite(n)?
 /* ───────── 상태 ───────── */
 var S={calcQ:{},calcLoss:true,calcPlan:true,calcAll:false,gLast:{},subG:'all',selMat:null,rawAll:false,logMat:'all',mRange:'open',sim:{item:'',qty:'',roast:''},aFrom:'',aTo:'',aQ:'',aSt:'all',aLimit:100,showPast:false,view:'month',hQ:'',hC:'all',month:ym(today()),itemF:'all',typeOff:{},loaded:{b:false,e:false},mode:'mem',readonly:false};
 var MATS=[],CAPPM={},BATCHES=[],EVENTS=[],DB=null,DOWN=null,drawer=null,draft=null,IDX={},FLAGS=[],XL=null;
-try{var sv=JSON.parse(localStorage.getItem('newji-ui')||'{}');if(sv.view)S.view=sv.view==='mat'?'sub':sv.view==='home'?'month':sv.view;if(sv.gLast&&sv.gLast.home)delete sv.gLast.home;if(sv.gLast)S.gLast=sv.gLast;if(sv.subG)S.subG=sv.subG;if(sv.month)S.month=sv.month;if(sv.typeOff)S.typeOff=sv.typeOff;}catch(e){}
+try{var sv=JSON.parse(localStorage.getItem('newji-ui')||'{}');if(sv.view)S.view=sv.view==='mat'?'sub':(sv.view==='home'||sv.view==='actual')?'month':sv.view;if(sv.gLast&&sv.gLast.home)delete sv.gLast.home;if(sv.gLast)S.gLast=sv.gLast;if(sv.subG)S.subG=sv.subG;if(sv.month)S.month=sv.month;if(sv.typeOff)S.typeOff=sv.typeOff;}catch(e){}
 try{S.calcQ=JSON.parse(localStorage.getItem('newji-calc')||'{}')||{}}catch(e){}
 function saveUI(){try{localStorage.setItem('newji-ui',JSON.stringify({gLast:S.gLast,subG:S.subG,view:S.view,month:S.month,typeOff:S.typeOff}))}catch(e){}}
 
@@ -861,7 +868,7 @@ function computeFlags(){
 function flagDates(){var m={};FLAGS.forEach(function(x){if(x.date)m[x.date]=1});return m}
 
 /* ───────── 렌더: 공통 ───────── */
-function render(){
+function render(){OD_CACHE=null;
   buildIndex();computeFlags();
   var h='';
   h+=headerHTML();
@@ -1063,7 +1070,24 @@ function snapRender(){if(S.print)setTimeout(drawPrint,0);
 }
 function packOf(it){var m=String(it||'').match(/(\d+)개입/);return m?Number(m[1]):1}
 function mMap(m){return m.scope==='bean'?(m.perBean||{}):(m.per||{})}
-function perOf(m,it,bean){return num(m.scope==='bean'?(m.perBean||{})[bean]:(m.per||{})[it])}
+function perOf(m,it,bean){if(m.scope==='bean')return num((m.perBean||{})[bean]);var mp=m.per||{};if(mp[it]!=null&&mp[it]!=='')return num(mp[it]);var k=nameKey(it),ks=Object.keys(mp);for(var i=0;i<ks.length;i++){if(nameKey(ks[i])===k&&num(mp[ks[i]]))return num(mp[ks[i]])}return 0}
+// 발주는 했지만 아직 생산 일정에 배정되지 않은 수량 → 부자재 소모 예정으로 반영 (납기 있으면 납기 전, 없으면 기존 계획 뒤에 일 캐파로 배치)
+var OD_CACHE=null;
+function orderDemand(){
+  if(OD_CACHE)return OD_CACHE;var out=[],t=today(),lastPlan=t;
+  BATCHES.forEach(function(b){Object.keys(b.daily||{}).forEach(function(d){if(d>lastPlan)lastPlan=d})});
+  var cursor=nextWork(add(lastPlan,1));
+  ORDERS.filter(oOpen).sort(function(a,b){return (a.due||'9999').localeCompare(b.due||'9999')}).forEach(function(o){
+    var st=orderStats(o),lines=[];st.forEach(function(x){var un=Math.max(0,x.sets-x.plan);if(un>0)lines.push({item:x.item,sets:un})});if(!lines.length)return;
+    var bags=lines.reduce(function(a,l){return a+l.sets*packOf(l.item)},0),days=Math.ceil(bags/CAP_PROD);
+    var d0=o.due?addWork(prevWork(add(o.due,-1)),-(days-1)):cursor;if(d0<=t)d0=nextWork(add(t,1));
+    var dd=d0;lines.forEach(function(l){var pk=packOf(l.item),rem=l.sets*pk,p=prodOf(l.item);
+      while(rem>0){if(workday(dd)){var q=Math.min(CAP_PROD,rem),e={d:dd,item:l.item,bags:q,beans:{},oid:o.id};if(p&&p.comp)Object.keys(p.comp).forEach(function(b){e.beans[b]=q*num(p.comp[b])/(num(p.pack)||pk)});out.push(e);rem-=q;if(rem>0)dd=add(dd,1)}else dd=add(dd,1)}
+    });
+    if(!o.due)cursor=nextWork(add(dd,1));
+  });
+  OD_CACHE=out;return out;
+}
 function usesFor(m,it,bean){return perOf(m,it,bean)>0}
 function matNeed(m,it,bags,bean){
   var per=perOf(m,it,bean);if(!per||!bags)return 0;
@@ -1120,6 +1144,7 @@ function projection(m,excl){
     else{L.rows.forEach(function(r){if(r.t==='in')ev.push([r.d,0,r.q])});start=add(L.first,-1)}
   }
   BATCHES.forEach(function(b){if(excl&&excl[b.id])return;var dl=b.daily||{};Object.keys(dl).forEach(function(d){if(!start||d>start){var v=matNeed(m,b.item,dl[d],b.bean);if(v)ev.push([d,1,-v])}})});
+  if(m.basis!=='gram'&&!(excl&&excl.__noOrders))orderDemand().forEach(function(e){if(excl&&excl.__oid===e.oid)return;if(start&&e.d<=start)return;var v=0;if(m.scope==='bean'){Object.keys(e.beans).forEach(function(b){v+=matNeed(m,e.item,e.beans[b],b)})}else v=matNeed(m,e.item,e.bags);if(v)ev.push([e.d,1,-v])});
   ev.sort(function(a,b){return a[0].localeCompare(b[0])||a[1]-b[1]});
   var est=bal,cur=null,short=null,need=0,inF=0,series=[[start||t,bal]];
   ev.forEach(function(e){
@@ -1434,7 +1459,6 @@ function matAlerts(){
 function homeIssues(){
   var t=today(),is=[],ma=matAlerts();
   delays().forEach(function(x){is.push({sev:2,a:'batch',id:x.b.id,t:'생산 지연 · '+itemShort(x.b.item)+' '+x.b.bean,s:'실적 입력일 기준 계획 '+nf(x.plan)+' / 실적 '+nf(x.act)+'개 ('+Math.round(x.act/x.plan*100)+'%) · '+nf(x.gap)+'개 부족 → 남은 생산일 재배정 필요'})});
-  var mi=missingActs();if(mi.length){var bs={};mi.forEach(function(x){bs[x.b.id]=(bs[x.b.id]||0)+1});is.push({sev:1,a:'view',v:'actual',t:'생산 실적 미입력 '+mi.length+'건',s:Object.keys(bs).length+'개 생산 일정 · 일정 › 실적에서 뉴지 일보 수량을 넣어 주세요'})}
   ma.forEach(function(x){var nm=x.m.name.replace('필름 · ','필름 ');
     if(x.stale)is.push({sev:1,a:'selmat',id:x.m.id,t:'잔여 회신 '+x.stale+'일 전 · '+nm,s:'남은 생산에 '+mFmt(x.m,x.p.need)+mUnit(x.m)+' 필요 · 뉴지에 실재고 확인 요청'});
     else is.push({sev:x.sb&&x.sb>add(t,7)?1:2,a:'selmat',id:x.m.id,t:(x.sb?(x.sb<t?'발송 마감 지남':'발송 마감 '+mdw(x.sb))+' · ':'재고 기록 확인 · ')+nm,s:(x.p.short&&x.p.short>t?mdw(x.p.short)+'부터 '+mFmt(x.m,-x.p.after)+mUnit(x.m)+' 부족 · 리드타임 '+LEAD+'일':'추정 재고가 이미 마이너스 · 발송 누락이나 잔여 회신을 확인하세요')});
@@ -1661,7 +1685,8 @@ function splitPlan(d,p,cfg){
   ps.seq.forEach(function(x){var segs=ps.by[x.id];sugg[x.id]=suggestFor(segs);var n=num(cfg[x.id])||1;chunkRounds(segs,n).forEach(function(r,i,arr){r.pid=x.id;r.pname=x.name;r.k=i+1;r.kn=arr.length;r.share=x.tot?r.bags/x.tot:0;rounds.push(r)})});
   var beans=d.beanRows.map(function(br){var out=rounds.map(function(x){return Math.round(num((br.by||{})[x.pid])*x.share*100)/100});
     ps.seq.forEach(function(x){var idx=[];rounds.forEach(function(r,i){if(r.pid===x.id)idx.push(i)});if(!idx.length)return;var c=0;idx.forEach(function(i){c+=out[i]});var li=idx[idx.length-1];out[li]=Math.round((out[li]+num((br.by||{})[x.id])-c)*100)/100;if(out[li]<0.005)out[li]=0});
-    return {bean:br.bean,total:br.kg,q:out}});
+    var ovm={},ov=cfg.__ov||{};rounds.forEach(function(r,i){var o=((ov[r.pid]||{})[r.k]||{})[br.bean];if(o!=null&&o!==''&&isFinite(Number(o))){out[i]=Math.round(num(o)*100)/100;ovm[i]=1}});
+    return {bean:br.bean,total:br.kg,q:out,ov:ovm}});
   var mats=d.rows.filter(function(r){return r.need>0}).map(function(r){var m=r.m,u=unitOf(m),av=Math.max(0,r.avail==null?0:r.avail),cumN=0,prev=0,out=[];
     rounds.forEach(function(x){cumN+=num((r.by||{})[x.pid])*x.share;var tgt=roundQ(m,Math.max(0,cumN-av),u);out.push(Math.max(0,tgt-prev));prev=Math.max(prev,tgt)});
     return {m:m,need:r.need,avail:r.avail,req:r.req,u:u,q:out,total:prev}});
@@ -1670,36 +1695,51 @@ function splitPlan(d,p,cfg){
 function rndLabel(x,d){var pp=d.sel.find(function(z){return z.id===x.pid});return '<span class="'+ic(x.pname)+'"><i class="sw"></i> '+esc(itemShort(x.pname))+(x.kn>1?' '+x.k+'/'+x.kn:'')+'</span>'}
 function splitHTML(d,p,key,editable){
   var cfg=splitCfg(key),sp=splitPlan(d,p,cfg);if(!sp)return '';
-  var h='<div class="panel"><div class="ph"><h3>분할 발송 계획 <span class="hint">품목별 회차 · 원두 로스팅 · 부자재 발송량</span></h3></div>';
-  h+='<div class="splitctl">'+sp.seq.map(function(pp){var n=num(cfg[pp.id])||1,sg=sp.sugg[pp.id]||1;return '<div class="sprow"><span class="'+ic(pp.name)+' spn"><i class="sw"></i> '+esc(itemShort(pp.name))+'</span>'+
-    (editable&&!S.readonly?'<div class="seg sm" role="group" aria-label="'+esc(pp.name)+' 발송 회차">'+[1,2,3,4,5,6].map(function(k){return '<button data-a="splitn" data-k="'+esc(key)+'" data-p="'+esc(pp.id)+'" data-v="'+k+'" aria-pressed="'+(n===k)+'">'+k+'회'+(k===sg&&sg>1?' ★':'')+'</button>'}).join('')+'</div>':'<b>'+n+'회</b>')+
-    (sg>1?'<span class="hint">★ 권장 '+sg+'회 (10일차 기준)</span>':'')+'</div>'}).join('')+
-    (sp.seq.length>1&&editable?'<div class="sprow"><span class="hint">생산 순서: '+sp.seq.map(function(pp){return esc(itemShort(pp.name))}).join(' → ')+'</span><button class="lbtn" data-a="splitrev">순서 바꾸기</button></div>':'')+'</div>';
-  var R=sp.rounds,cols=R.length+2+(editable?1:0);
-  h+='<div class="tscroll"><table class="spt"><thead><tr><th>회차</th>'+R.map(function(x,i){return '<th class="r">'+(i+1)+'회차<small>'+rndLabel(x,d)+'</small>'+(x.start?'<small>생산 '+md(x.start)+(x.end!==x.start?'~'+md(x.end):'')+'</small>':'')+'</th>'}).join('')+'<th class="r">합계</th>'+(editable?'<th class="r">묶음 단위</th>':'')+'</tr></thead><tbody>';
-  h+='<tr class="sph"><td>티백 생산</td>'+R.map(function(x){return '<td class="r num">'+nf(x.bags)+'개</td>'}).join('')+'<td class="r num">'+nf(d.bags)+'개</td>'+(editable?'<td></td>':'')+'</tr>';
-  if(R.length&&R[0].roast){
-    h+='<tr class="sph"><td>로스팅 · 원두 입고</td>'+R.map(function(x){return '<td class="r num">'+mdw(x.roast)+'<small>입고 '+mdw(x.recv)+'</small></td>'}).join('')+'<td></td>'+(editable?'<td></td>':'')+'</tr>';
-    h+='<tr class="sph"><td>부자재 발송 마감</td>'+R.map(function(x){return '<td class="r num'+(x.shipBy<today()?' wflag':'')+'">'+mdw(x.shipBy)+'</td>'}).join('')+'<td></td>'+(editable?'<td></td>':'')+'</tr>';}
-  h+='<tr class="spg"><td colspan="'+cols+'">원두 (kg) · 회차별 로스팅</td></tr>';
-  sp.beans.forEach(function(b){h+='<tr><td>'+esc(b.bean)+'</td>'+b.q.map(function(v){return '<td class="r num">'+(v>0?nf(Math.round(v*100)/100):'<span class="hint">-</span>')+'</td>'}).join('')+'<td class="r num"><b>'+nf(Math.round(b.total*100)/100)+'</b></td>'+(editable?'<td></td>':'')+'</tr>'});
-  h+='<tr class="spg"><td colspan="'+cols+'">부자재 · 포장재 발송 (보관 재고 먼저 사용)</td></tr>';
-  var zero=sp.mats.filter(function(x){return !x.total});
-  sp.mats.filter(function(x){return x.total>0}).forEach(function(x){var m=x.m,u=mUnit(m);h+='<tr><td>'+esc(m.name)+'<small>필요 '+mFmt(m,x.need)+' · 보관 '+(x.avail==null?'기록 없음':mFmt(m,Math.max(0,x.avail)))+' '+esc(u)+'</small></td>'+x.q.map(function(v){return '<td class="r num">'+(v>0?'<b>'+mFmt(m,v)+'</b>':'<span class="hint">-</span>')+'</td>'}).join('')+'<td class="r num"><b>'+mFmt(m,x.total)+'</b> '+esc(u)+'</td>'+
-    (editable?'<td class="r">'+(S.readonly?(x.u?nf(x.u):'-'):'<input class="unitin" type="number" min="0" step="any" data-change="shipunit" data-id="'+esc(m.id)+'" value="'+(x.u||'')+'" placeholder="없음" title="롤·박스 등 묶음 단위 ('+esc(u)+')">')+'</td>':'')+'</tr>'});
-  h+='</tbody></table></div>'+(zero.length?'<p class="hint">보관 재고로 충분해 발송이 필요 없는 자재: '+zero.map(function(x){return esc(x.m.name)}).join(', ')+'</p>':'');
-  if(sp.warn)h+='<div class="notice">일부 회차가 로스팅 후 10일차를 넘깁니다. 해당 품목의 회차를 ★ 권장 이상으로 늘려 주세요.</div>';
-  h+='<p class="hint">버라이어티와 달항아리는 섞지 않고 품목별로 회차를 나눕니다. 각 품목은 생산 일정(남은 캐파 기준)을 회차 수만큼 생산일 단위로 나누고, 원두·부자재는 그 품목에 쓰는 것만 배분합니다. 묶음 단위(필름 롤 길이, 필터 박스 입수 등)를 넣으면 그 배수로 올려 계산합니다.</p></div>';
+  var h='<div class="panel"><div class="ph"><h3>분할 발송 계획 <span class="hint">품목별로 따로 관리 · 각 품목 원두량을 그 품목 회차에만 배분</span></h3>'+(sp.seq.length>1&&editable?'<span class="hint">생산 순서 '+sp.seq.map(function(pp){return esc(itemShort(pp.name))}).join(' → ')+' <button class="lbtn" data-a="splitrev">순서 바꾸기</button></span>':'')+'</div>';
+  var gi=0,anyWarn=false;
+  sp.seq.forEach(function(pp){
+    var idx=[];sp.rounds.forEach(function(r,i){if(r.pid===pp.id)idx.push(i)});if(!idx.length)return;
+    var R=idx.map(function(i){return sp.rounds[i]}),n=num(cfg[pp.id])||1,sg=sp.sugg[pp.id]||1,pb=R.reduce(function(a,r){return a+r.bags},0),pkg=num(d.prodKg[pp.id]),cols=R.length+2+(editable?1:0);
+    if(R.some(function(x){return x.fresh}))anyWarn=true;
+    h+='<div class="spblock '+ic(pp.name)+'"><div class="sphead"><b class="spn"><i class="sw"></i> '+esc(pp.name)+'</b><span class="hint num">'+nf(num(d.q[pp.id]))+'세트 · 티백 '+nf(pb)+'개 · 원두 '+nf(Math.round(pkg*100)/100)+'kg</span>'+
+      (editable&&!S.readonly?'<div class="seg sm" role="group" aria-label="'+esc(pp.name)+' 발송 회차">'+[1,2,3,4,5,6].map(function(k){return '<button data-a="splitn" data-k="'+esc(key)+'" data-p="'+esc(pp.id)+'" data-v="'+k+'" aria-pressed="'+(n===k)+'">'+k+'회'+(k===sg&&sg>1?' ★':'')+'</button>'}).join('')+'</div>':'<b>'+n+'회</b>')+
+      (sg>1?'<span class="hint">★ 권장 '+sg+'회 (10일차 기준)</span>':'')+'</div>';
+    h+='<div class="tscroll"><table class="spt"><thead><tr><th>회차</th>'+R.map(function(x,i){return '<th class="r">'+(i+1)+'회차'+(x.start?'<small>생산 '+md(x.start)+(x.end!==x.start?'~'+md(x.end):'')+'</small>':'')+'</th>'}).join('')+'<th class="r">품목 합계</th>'+(editable?'<th class="r">묶음 단위</th>':'')+'</tr></thead><tbody>';
+    h+='<tr class="sph"><td>티백 생산</td>'+R.map(function(x){return '<td class="r num">'+nf(x.bags)+'개</td>'}).join('')+'<td class="r num">'+nf(pb)+'개</td>'+(editable?'<td></td>':'')+'</tr>';
+    if(R[0].roast){
+      h+='<tr class="sph"><td>로스팅 · 원두 입고</td>'+R.map(function(x){return '<td class="r num">'+mdw(x.roast)+'<small>입고 '+mdw(x.recv)+'</small></td>'}).join('')+'<td></td>'+(editable?'<td></td>':'')+'</tr>';
+      h+='<tr class="sph"><td>부자재 발송 마감</td>'+R.map(function(x){return '<td class="r num'+(x.shipBy<today()?' wflag':'')+'">'+mdw(x.shipBy)+'</td>'}).join('')+'<td></td>'+(editable?'<td></td>':'')+'</tr>';}
+    h+='<tr class="spg"><td colspan="'+cols+'">원두 (kg)</td></tr>';
+    var hasOv=false,canE=editable&&!S.readonly;
+    d.beanRows.forEach(function(br,bi){var tot=num((br.by||{})[pp.id]);if(!tot)return;var b=sp.beans[bi],sum=idx.reduce(function(a,i){return a+b.q[i]},0),df=Math.round((sum-tot)*100)/100;
+      h+='<tr><td>'+esc(br.bean)+'</td>'+idx.map(function(i){var v=b.q[i],o=b.ov&&b.ov[i];if(o)hasOv=true;var r=sp.rounds[i];
+        return '<td class="r num">'+(canE?'<input class="kgin'+(o?' set':'')+'" type="number" step="0.01" min="0" data-change="splitbean" data-k="'+esc(key)+'" data-p="'+esc(pp.id)+'" data-r="'+r.k+'" data-b="'+esc(br.bean)+'" value="'+(Math.round(v*100)/100)+'" aria-label="'+esc(br.bean)+' '+r.k+'회차 원두(kg)">':(v>0?nf(Math.round(v*100)/100):'<span class="hint">-</span>'))+'</td>'}).join('')+
+        '<td class="r num"><b>'+nf(Math.round(sum*100)/100)+'</b>'+(Math.abs(df)>=0.01?'<small class="'+(df<0?'wflag':'hint')+'">필요 '+nf(Math.round(tot*100)/100)+' ('+(df>0?'+':'')+nf(df)+')</small>':'')+'</td>'+(editable?'<td></td>':'')+'</tr>'});
+    h+='<tr class="tot"><td>원두 합계'+(hasOv&&canE?' <button class="lbtn" data-a="splitreset" data-k="'+esc(key)+'" data-p="'+esc(pp.id)+'">자동 배분으로 되돌리기</button>':'')+'</td>'+idx.map(function(i){var v=0;sp.beans.forEach(function(b){v+=b.q[i]});return '<td class="r num">'+nf(Math.round(v*100)/100)+'</td>'}).join('')+'<td class="r num">'+nf(Math.round(idx.reduce(function(a,i){var v=0;sp.beans.forEach(function(b){v+=b.q[i]});return a+v},0)*100)/100)+'</td>'+(editable?'<td></td>':'')+'</tr>';
+    var mrows=sp.mats.filter(function(x){var r=d.rows.find(function(z){return z.m.id===x.m.id});return r&&num((r.by||{})[pp.id])>0});
+    if(mrows.length){h+='<tr class="spg"><td colspan="'+cols+'">부자재 · 포장재 발송 (뉴지 보관 재고 먼저 사용)</td></tr>';
+      mrows.forEach(function(x){var m=x.m,u=mUnit(m),r=d.rows.find(function(z){return z.m.id===m.id}),pn=num(r.by[pp.id]),pt=idx.reduce(function(a,i){return a+x.q[i]},0);
+        h+='<tr><td>'+esc(m.name)+'<small>이 품목 필요 '+mFmt(m,pn)+' '+esc(u)+'</small></td>'+idx.map(function(i){var v=x.q[i];return '<td class="r num">'+(v>0?'<b>'+mFmt(m,v)+'</b>':'<span class="hint">-</span>')+'</td>'}).join('')+'<td class="r num"><b>'+(pt>0?mFmt(m,pt)+'</b> '+esc(u):'</b><span class="hint">보관 재고로 충분</span>')+'</td>'+
+          (editable?'<td class="r">'+(S.readonly?(x.u?nf(x.u):'-'):'<input class="unitin" type="number" min="0" step="any" data-change="shipunit" data-id="'+esc(m.id)+'" value="'+(x.u||'')+'" placeholder="없음" title="롤·박스 등 묶음 단위 ('+esc(u)+')">')+'</td>':'')+'</tr>'})}
+    h+='</tbody></table></div></div>';
+  });
+  if(anyWarn)h+='<div class="notice">일부 회차가 로스팅 후 10일차를 넘깁니다. 해당 품목의 회차를 ★ 권장 이상으로 늘려 주세요.</div>';
+  h+='<p class="hint">품목마다 그 품목의 원두량·부자재 필요량만 그 품목 회차에 나눕니다(버라이어티 원두는 버라이어티 회차에만, 므쵸베리는 달항아리 회차에만). 공통 자재(필터 등)의 뉴지 보관 재고는 생산 순서상 앞 품목부터 먼저 씁니다. 묶음 단위(필름 롤 길이, 필터 박스 입수 등)를 넣으면 그 배수로 올려 계산합니다.</p></div>';
   return h;
 }
 function splitPrint(d,p,key){
-  var cfg=splitCfg(key),sp=splitPlan(d,p,cfg);if(!sp||sp.N<2)return '';var R=sp.rounds;
-  var h='<h2>분할 발송 계획 ('+sp.N+'회)</h2><table class="pt"><thead><tr><th>구분</th>'+R.map(function(x,i){return '<th class="r">'+(i+1)+'회차<br><small>'+esc(itemShort(x.pname))+(x.kn>1?' '+x.k+'/'+x.kn:'')+'</small></th>'}).join('')+'<th class="r">합계</th></tr></thead><tbody>';
-  h+='<tr><th>티백 생산</th>'+R.map(function(x){return '<td class="r">'+nf(x.bags)+(x.start?'<br><small>'+md(x.start)+(x.end!==x.start?'~'+md(x.end):'')+'</small>':'')+'</td>'}).join('')+'<td class="r">'+nf(d.bags)+'</td></tr>';
-  if(R[0].roast){h+='<tr><th>원두 입고</th>'+R.map(function(x){return '<td class="r">'+mdw(x.recv)+'</td>'}).join('')+'<td></td></tr><tr><th>부자재 발송</th>'+R.map(function(x){return '<td class="r">~ '+mdw(x.shipBy)+'</td>'}).join('')+'<td></td></tr>'}
-  sp.beans.forEach(function(b){h+='<tr><td>'+esc(b.bean)+' (kg)</td>'+b.q.map(function(v){return '<td class="r">'+(v>0?nf(Math.round(v*100)/100):'-')+'</td>'}).join('')+'<td class="r"><b>'+nf(Math.round(b.total*100)/100)+'</b></td></tr>'});
-  sp.mats.forEach(function(x){var m=x.m;if(!x.total)return;h+='<tr><td>'+esc(m.name)+' ('+esc(mUnit(m))+')</td>'+x.q.map(function(v){return '<td class="r">'+(v>0?mFmt(m,v):'-')+'</td>'}).join('')+'<td class="r"><b>'+mFmt(m,x.total)+'</b></td></tr>'});
-  return h+'</tbody></table>';
+  var cfg=splitCfg(key),sp=splitPlan(d,p,cfg);if(!sp||sp.N<2)return '';
+  var h='<h2>분할 발송 계획</h2>';
+  sp.seq.forEach(function(pp){
+    var idx=[];sp.rounds.forEach(function(r,i){if(r.pid===pp.id)idx.push(i)});if(!idx.length)return;var R=idx.map(function(i){return sp.rounds[i]}),pb=R.reduce(function(a,r){return a+r.bags},0);
+    h+='<h3 class="psub">'+esc(pp.name)+' · '+R.length+'회 · 원두 '+nf(Math.round(num(d.prodKg[pp.id])*100)/100)+'kg</h3><table class="pt"><thead><tr><th>구분</th>'+R.map(function(x,i){return '<th class="r">'+(i+1)+'회차</th>'}).join('')+'<th class="r">합계</th></tr></thead><tbody>';
+    h+='<tr><th>티백 생산</th>'+R.map(function(x){return '<td class="r">'+nf(x.bags)+(x.start?'<br><small>'+md(x.start)+(x.end!==x.start?'~'+md(x.end):'')+'</small>':'')+'</td>'}).join('')+'<td class="r">'+nf(pb)+'</td></tr>';
+    if(R[0].roast)h+='<tr><th>원두 입고</th>'+R.map(function(x){return '<td class="r">'+mdw(x.recv)+'</td>'}).join('')+'<td></td></tr><tr><th>부자재 발송</th>'+R.map(function(x){return '<td class="r">~ '+mdw(x.shipBy)+'</td>'}).join('')+'<td></td></tr>';
+    d.beanRows.forEach(function(br,bi){var tot=num((br.by||{})[pp.id]);if(!tot)return;var b=sp.beans[bi];h+='<tr><td>'+esc(br.bean)+' (kg)</td>'+idx.map(function(i){return '<td class="r">'+(b.q[i]>0?nf(Math.round(b.q[i]*100)/100):'-')+'</td>'}).join('')+'<td class="r"><b>'+nf(Math.round(tot*100)/100)+'</b></td></tr>'});
+    sp.mats.forEach(function(x){var r=d.rows.find(function(z){return z.m.id===x.m.id});if(!r||!num((r.by||{})[pp.id]))return;var pt=idx.reduce(function(a,i){return a+x.q[i]},0);if(!pt)return;h+='<tr><td>'+esc(x.m.name)+' ('+esc(mUnit(x.m))+')</td>'+idx.map(function(i){return '<td class="r">'+(x.q[i]>0?mFmt(x.m,x.q[i]):'-')+'</td>'}).join('')+'<td class="r"><b>'+mFmt(x.m,pt)+'</b></td></tr>'});
+    h+='</tbody></table>';
+  });
+  return h;
 }
 async function saveSplit(key,cfg){SPLITS=Object.assign({},SPLITS);SPLITS[key]=cfg;if(key==='_calc')S.splitCfg=cfg;try{if(DB&&key!=='_calc')await DB.collection('settings').doc('splits').set(SPLITS)}catch(e){}}
 function hasSplit(cfg){return Object.keys(cfg||{}).length>0}
@@ -1711,7 +1751,7 @@ function nameKey(n){return baseName(n).replace(/티백/g,'').replace(/\s/g,'')}
 function prodOf(item){var k=nameKey(item);return PRODUCTS.find(function(p){return p.name===item})||PRODUCTS.find(function(p){return nameKey(p.name)===k})}
 // 발주 품목 → 발주 계산 수량 (1차·2차는 같은 제품으로 합산)
 function orderQ(o){var q={},miss=[];(o.lines||[]).forEach(function(l){var p=prodOf(l.item);if(p)q[p.id]=num(q[p.id])+num(l.sets);else if(num(l.sets))miss.push(l.item)});return {q:q,miss:miss}}
-function orderExcl(id){var e={};if(id)BATCHES.forEach(function(b){if(b.order===id)e[b.id]=1});return e}
+function orderExcl(id){var e={};if(id){BATCHES.forEach(function(b){if(b.order===id)e[b.id]=1});e.__oid=id}return e}
 function nextWork(d){var n=0;while(!workday(d)&&n<14){d=add(d,1);n++}return d}
 function addWork(d,n){var s=n<0?-1:1,k=Math.abs(n);while(k>0){d=add(d,s);if(workday(d))k--}return d}
 // 희망 납기에서 역산: 생산 → 원두 입고 → 로스팅 → 부자재 발송 → 의뢰 마감 (기존 생산·로스팅 계획이 쓰는 캐파는 제외)
@@ -1799,7 +1839,7 @@ async function saveCompany(){harvest();var c={};['name','dept','person','tel','e
   try{if(DB)await DB.collection('settings').doc('company').set(c);COMPANY=c;toast('발주서 정보를 저장했습니다.');closeDrawer();drawPrint()}catch(e){toast('저장하지 못했습니다. 권한을 확인해 주세요.')}}
 
 /* ───────── 내비게이션 (대분류 → 세부) ───────── */
-var GROUPS=[['sched','일정',[['month','달력'],['gantt','타임라인'],['list','목록'],['actual','실적']]],['order','발주·입고',[['order','발주·입고']]],['calc','발주 계산',[['calc','발주 계산']]],['raw','원자재',[['raw','원두']]],['sub','부자재',[['sub','부자재']]],['ana','분석',[['cap','캐파 분석'],['archive','누적 현황'],['hist','변경 이력']]]];
+var GROUPS=[['sched','일정',[['month','달력'],['gantt','타임라인'],['list','목록']]],['order','발주·입고',[['order','발주·입고']]],['calc','발주 계산',[['calc','발주 계산']]],['raw','원자재',[['raw','원두']]],['sub','부자재',[['sub','부자재']]],['ana','분석',[['cap','캐파 분석'],['archive','누적 현황'],['hist','변경 이력']]]];
 function groupOf(v){for(var i=0;i<GROUPS.length;i++){if(GROUPS[i][2].some(function(x){return x[0]===v}))return GROUPS[i][0]}return 'sched'}
 function subShortCount(){var n=0;MATS.forEach(function(m){if(m.basis==='gram'||mUnset(m))return;var p=projection(m);if(!p.none&&p.after<-1e-6)n++});return n}
 function navHTML(){
@@ -1997,9 +2037,7 @@ function matDetail(m){
   if(p.none){h+='<p class="hint">'+(mUnset(m)?'사용 기준을 입력하면 필요량을 계산합니다.':'발송·잔여 회신 기록이 없어 재고를 추정할 수 없습니다.')+'</p>';return h+(L.rows.length?'':'')}
   var bad=p.after<-1e-6;
   h+='<div class="kvs">'+
-   '<div class="kv"><span class="k">기록상 재고 (시트 기준)</span><span class="v num">'+mFmt(m,L.bal)+'<small>'+u+'</small></span><span class="hint">마지막 회신'+(L.lastCnt?' '+md(L.lastCnt):'')+' + 이후 발송</span></div>'+
-   '<div class="kv'+(p.est<0?' bad':'')+'"><span class="k">오늘 추정 재고</span><span class="v num">'+mFmt(m,p.est)+'<small>'+u+'</small></span><span class="hint">기록상 재고 − 이후 생산 소모 '+mFmt(m,Math.max(0,L.bal-p.est))+u+'</span></div>'+
-   '<div class="kv"><span class="k">남은 생산 필요량</span><span class="v num">'+mFmt(m,p.need)+'<small>'+u+'</small></span></div>'+
+   '<div class="kv"><span class="k">남은 생산 필요량</span><span class="v num">'+mFmt(m,p.need)+'<small>'+u+'</small></span><span class="hint">생산 일정'+(orderDemand().length?' + 미배정 발주':'')+' 기준</span></div>'+
    (p.inF?'<div class="kv"><span class="k">발송 예정</span><span class="v num">+'+mFmt(m,p.inF)+'<small>'+u+'</small></span></div>':'')+
    '<div class="kv'+(bad?' bad':'')+'"><span class="k">'+(bad?'부족량':'생산 후 남는 양')+'</span><span class="v num">'+mFmt(m,Math.abs(p.after))+'<small>'+u+'</small></span></div>'+
    '<div class="kv'+(bad?' bad':'')+'"><span class="k">부족 시작</span><span class="v num">'+(bad?(p.short&&p.short>today()?mdw(p.short):'기록 확인'):'-')+'</span></div>'+
@@ -2709,7 +2747,8 @@ var H={
   company:function(){if(S.readonly)return;openDrawer({kind:'company'},{})},
   savecompany:saveCompany,
   splitrev:function(){S.splitRev=!S.splitRev;calcSync();render()},
-  splitn:async function(el){var k=el.dataset.k||'_calc',cfg=Object.assign({},splitCfg(k));cfg[el.dataset.p]=+el.dataset.v;await saveSplit(k,cfg);calcSync();render()},
+  splitreset:async function(el){var k=el.dataset.k||'_calc',cfg=JSON.parse(JSON.stringify(splitCfg(k)));if(cfg.__ov)delete cfg.__ov[el.dataset.p];await saveSplit(k,cfg);calcSync();render()},
+  splitn:async function(el){var k=el.dataset.k||'_calc',cfg=JSON.parse(JSON.stringify(splitCfg(k)));if(cfg.__ov&&num(cfg[el.dataset.p])!==+el.dataset.v)delete cfg.__ov[el.dataset.p];cfg[el.dataset.p]=+el.dataset.v;await saveSplit(k,cfg);calcSync();render()},
   ocancel:async function(el){var o=ORDERS.find(function(x){return x.id===el.dataset.id});if(!o)return;
     var rc=RECEIPTS.filter(function(r){return r.order===o.id}).length,bs=BATCHES.filter(function(b){return b.order===o.id}).length;
     if(!confirmOnce('oc'+o.id,'‘'+(o.title||'발주')+'’을(를) 취소할까요? 한 번 더 누르면 취소됩니다.'+(bs||rc?' (연결된 생산 일정 '+bs+'건 · 입고 '+rc+'건은 그대로 남습니다)':'')))return;
@@ -2868,6 +2907,9 @@ document.addEventListener('change',async function(e){
   if(k==='logmat'){S.logMat=el.value;render();return}
   if(k==='calcorder'){if(el.value)loadOrderToCalc(el.value);else{S.calcOrder=null}render();return}
   if(k==='calcdue'){S.calcDue=el.value;calcSync();return}
+  if(k==='splitbean'){var sk=el.dataset.k||'_calc',cf=JSON.parse(JSON.stringify(splitCfg(sk))),pid=el.dataset.p,rk=el.dataset.r,bn=el.dataset.b,sv=String(el.value).trim();cf.__ov=cf.__ov||{};cf.__ov[pid]=cf.__ov[pid]||{};cf.__ov[pid][rk]=cf.__ov[pid][rk]||{};
+    if(sv===''){delete cf.__ov[pid][rk][bn]}else{if(!(num(sv)>=0)){toast('0 이상의 kg을 입력해 주세요.');return}cf.__ov[pid][rk][bn]=Math.round(num(sv)*100)/100}
+    await saveSplit(sk,cf);calcSync();return}
   if(k==='shipunit'){var su=Object.assign({},SHIPUNITS);if(String(el.value).trim()===''||!(num(el.value)>0))delete su[el.dataset.id];else su[el.dataset.id]=num(el.value);SHIPUNITS=su;try{if(DB)await DB.collection('settings').doc('shipunits').set(su)}catch(e){}calcSync();return}
   if(k==='lrtype'){harvest();layer();return}
   if(k==='shipkg'){var sv=String(el.value).trim();if(sv!==''&&!(num(sv)>=0)){toast('0 이상의 kg을 입력해 주세요.');return}var bb=BATCHES.find(function(x){return x.id===el.dataset.id});if(!bb)return;
