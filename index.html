@@ -1454,7 +1454,7 @@ async function saveOrder(){
   var lines=mergeLines(d.lines.filter(function(l){return String(l.item||'').trim()}).map(function(l){return {item:l.item.trim(),sets:num(l.sets)}}));
   var o={title:d.title.trim(),no:d.no||'',date:d.date||'',due:d.due||'',status:d.status||'발주',memo:d.memo||'',lines:lines};
   var id=d.id||('o'+uid());
-  if(await put('orders',id,o)){if(d.fromCalc){S.calcOrder=id;S.calcDue=o.due||'';if(hasSplit(splitCfg('_calc')))await saveSplit(id,splitCfg('_calc'));if(S.schov&&Object.keys(S.schov).length){await saveSchov(id,S.schov);S.schov={}}}toast(d.id?'저장했습니다.':'발주를 등록했습니다. ‘발주서’로 의뢰서·품의서를 출력할 수 있습니다.');closeDrawer();render()}
+  if(await put('orders',id,o)){if(d.fromCalc){S.calcOrder=id;S.calcDue=o.due||'';if(hasSplit(splitCfg('_calc')))await saveSplit(id,splitCfg('_calc'));if(S.schov&&Object.keys(S.schov).length){await saveSchov(id,S.schov);S.schov={}}var nreg=await registerSched(Object.assign({id:id},o),true);toast((d.id?'저장했습니다.':'발주를 등록했습니다.')+(nreg?' 생산 일정 '+nreg+'건이 일정 탭에 반영됐습니다.':''));closeDrawer();render();return}toast(d.id?'저장했습니다.':'발주를 등록했습니다. ‘발주서’로 의뢰서·품의서를 출력할 수 있습니다.');closeDrawer();render()}
 }
 var DIVS=[['b2b','B2B'],['ec','이커머스'],['store','매장사업부'],['etc','기타']];
 function divTag(k,label,v){return '<span class="dv dv-'+k+'"><i></i>'+label+(v!=null?' <b>'+v+'</b>':'')+'</span>'}
@@ -2073,12 +2073,12 @@ function schedFor(co){
 }
 function genDocs(co,rs){var out=[];rs.rounds.forEach(function(rd){rd.items.forEach(function(it,i){var id='g_'+gsafe(co.id)+'_'+gsafe(rd.p.id)+'_'+hkey(rd.key)+'_'+i;out.push([id,{item:itemFor(co,rd.p.id),bean:it.bean,batches:it.batch||0,kg:it.kg,qty:it.bags,roast:it.roast,recv:it.recv,grind:it.grind,lastGrind:it.lastGrind,order:co.id,start:it.start,end:it.end,daily:it.daily,round:rd.no}])})});return out}
 function schedState(co,rs){if(!co)return 'new';var ex=BATCHES.filter(function(b){return b.order===co.id&&isGen(b.id)});if(!ex.length)return 'none';var g=genDocs(co,rs),same=g.length===ex.length&&g.every(function(x){var b=ex.find(function(y){return y.id===x[0]});return b&&b.roast===x[1].roast&&b.recv===x[1].recv&&JSON.stringify(b.daily||{})===JSON.stringify(x[1].daily)});return same?'same':'changed'}
-async function registerSched(){var co=calcSrc();if(!co||S.readonly)return;var sf=schedFor(co);if(sf.none)return;var g=genDocs(co,sf.rs),ids={},n=0;
+async function registerSched(co0,silent){var co=co0&&co0.id?co0:calcSrc();if(!co||S.readonly)return 0;var sf=schedFor(co);if(sf.none)return 0;var g=genDocs(co,sf.rs),ids={},n=0;
   for(var i=0;i<g.length;i++){var id=g[i][0],doc=g[i][1],old=BATCHES.find(function(b){return b.id===id})||{};ids[id]=1;delete doc.round;
     doc.shipKg=old.shipKg==null?null:old.shipKg;doc.actual=old.actual||{};doc.status=old.status||'예정';doc.memo=old.memo||'발주 계산 로스팅 일정표에서 등록';
-    if(!(await put('batches',id,doc)))return;n++}
+    if(!(await put('batches',id,doc)))return n;n++}
   var stale=BATCHES.filter(function(b){return b.order===co.id&&isGen(b.id)&&!ids[b.id]}).map(function(b){return b.id});for(var k=0;k<stale.length;k++)await del('batches',stale[k]);
-  toast('생산 일정 '+n+'건을 등록했습니다. 달력·원부자재 소모에 반영됩니다.');render()}
+  if(!silent){toast('생산 일정 '+n+'건을 등록했습니다. 달력·원부자재 소모에 반영됩니다.');render()}return n}
 function roastSchedHTML(d0,co){
   var sf=schedFor(co);
   if(sf.none)return '<div class="panel rsched"><div class="ph"><h3>로스팅 일정표</h3></div><p class="hint">'+(sf.manual?'이 발주의 수량은 이미 생산 일정(엑셀 가져오기·직접 등록)에 모두 들어 있습니다. 날짜 변경은 달력에서 해당 일정을 눌러 고치세요.':'세트 수량을 입력하면 로스팅 일정이 계산됩니다.')+'</p></div>';
@@ -3123,7 +3123,7 @@ var H={
     var lines=d.sel.map(function(p){var old=(co.lines||[]).filter(function(l){var pp=prodOf(l.item);return pp&&pp.id===p.id});return old.length===1?{item:old[0].item,sets:num(d.q[p.id])}:{item:p.name,sets:num(d.q[p.id])}}).concat(keep);
     var multi=d.sel.some(function(p){return (co.lines||[]).filter(function(l){var pp=prodOf(l.item);return pp&&pp.id===p.id}).length>1});
     var doc=Object.assign({},co);delete doc.id;doc.lines=lines;doc.due=S.calcDue||'';
-    if(await put('orders',co.id,doc)){toast('발주를 수정했습니다.');render()}},
+    if(await put('orders',co.id,doc)){var nreg=await registerSched(Object.assign({id:co.id},doc),true);toast('발주를 수정했습니다.'+(nreg?' 생산 일정 '+nreg+'건을 일정 탭에 다시 반영했습니다.':''));render()}},
   calc2order:function(){if(S.readonly)return;var d=calcData();if(!d.sel.length)return;var o=orderDraft(null);
     o.title=Number(today().slice(5,7))+'월 티백 OEM 발주 ('+d.sel.map(function(p){return itemShort(p.name)}).join('·')+')';
     o.lines=d.sel.map(function(p){return {item:p.name,sets:num(d.q[p.id])}});o.due=S.calcDue||'';o.fromCalc=1;o.memo='발주 계산에서 생성 · 원두 '+nf(Math.round(d.beanRows.reduce(function(s,r){return s+r.kg},0)*10)/10)+'kg';
@@ -3201,7 +3201,7 @@ var H={
   replypick:function(){if(S.readonly)return;var os=ORDERS.filter(oOpen);if(os.length===1)H.oreply({dataset:{id:os[0].id}});else openDrawer({kind:'replypick'})},
   savereply:saveReply,
   calcr1reset:async function(el){var ok=el.dataset.o,ov=schovOf(ok);ov.a=null;await saveSchov(ok,ov);calcSync()},
-  regsched:registerSched,
+  regsched:function(){registerSched()},
   rsreset:async function(el){await saveSchov(el.dataset.o,{});calcSync()},
   pickdate:function(el){var i=el.parentNode.querySelector('input');if(!i)return;try{if(i.showPicker){i.showPicker();return}}catch(e){}i.style.pointerEvents='auto';i.focus();i.click()},
   rsedit:function(){S.rsEdit=!S.rsEdit;calcSync()},
